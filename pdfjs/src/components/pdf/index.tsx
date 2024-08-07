@@ -1,5 +1,6 @@
 import React from "react";
 import "./index.css";
+import PdfEditor from "./pdf-editor";
 
 const Pdf: React.FC = () => {
   const [fileList, setFileList] = React.useState<File[]>();
@@ -33,10 +34,11 @@ const Pdf: React.FC = () => {
                   del
                 </button>
               </li>
-              <iframe
-                style={{ width: "100%", height: "50vh" }}
-                src={URL.createObjectURL(file)}
-              />
+              <PdfEditor file={file} />
+              {/* // <iframe
+              //   style={{ width: "100%", height: "50vh" }}
+              //   src={URL.createObjectURL(file)}
+              // /> */}
             </div>
           );
         })}
