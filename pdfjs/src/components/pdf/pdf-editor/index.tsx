@@ -9,6 +9,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import * as fabric from "fabric";
 import "./index.css";
 import { PDFDocumentProxy } from "pdfjs-dist";
+import { jsPDF } from "jspdf";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -23,37 +24,97 @@ const PdfEditor = (props: IProps) => {
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [pages, setPages] = useState<
     {
-      canvasRef: React.RefObject<HTMLCanvasElement>;
-      fabricCanvas: fabric.Canvas | null;
-      bgImg: any;
+      pdfCanvasRef: React.RefObject<HTMLCanvasElement>;
+      fabricCanvasRef: React.RefObject<HTMLCanvasElement>;
     }[]
   >([]);
   const [numPages, setNumPages] = useState<number>(0);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const fabricCanvasRefs = useRef<fabric.Canvas[]>([]);
-  const [isDrawing, setIsDrawing] = useState<boolean>(false);
-  const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(
-    null
-  );
+  const pointRef = useRef<{ x: number; y: number } | null>(null);
+  //   const [startPos, setStartPos] = useState(null);
+  const drawingRef = useRef(false);
+  const erasingRef = useRef(false);
 
+  const bind = (canvas) => {
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const handleMouseDown = (e) => {
+        const isDrawing = drawingRef.current;
+        const isErasing = erasingRef.current;
+        console.log("mousedown", e);
+        pointRef.current = {
+          x: e.offsetX,
+          y: e.offsetY,
+        };
+        if (isErasing) {
+          erasingRef.current = true;
+        } else if (isDrawing) {
+          drawingRef.current = true;
+        }
+      };
+
+      const handleMouseMove = (e) => {
+        const isDrawing = drawingRef.current;
+        const isErasing = erasingRef.current;
+        // console.log("handleMouseMove", e, isDrawing, isErasing);
+        if ((!isErasing && !isDrawing) || !pointRef.current) return;
+        const { x, y } = pointRef.current || {};
+        // debugger;
+        // 擦除
+        if (isErasing) {
+          ctx.clearRect(e.offsetX - 10, e.offsetY - 10, 20, 20);
+        } else if (isDrawing) {
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(e.offsetX, e.offsetY);
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.8)";
+          ctx.lineWidth = 20;
+          ctx.stroke();
+        }
+        pointRef.current = {
+          x: e.offsetX,
+          y: e.offsetY,
+        };
+      };
+
+      const handleMouseUp = () => {
+        drawingRef.current = false;
+        erasingRef.current = false;
+      };
+
+      canvas.addEventListener("mousedown", handleMouseDown);
+      canvas.addEventListener("mousemove", handleMouseMove);
+      canvas.addEventListener("mouseup", handleMouseUp);
+    }
+  };
+
+  // 渲染canvas
   const renderPages = async (pdf: PDFDocumentProxy) => {
     for (let i = 1; i <= pages.length; i++) {
       const page = await pdf.getPage(i);
       const viewport = page.getViewport({ scale: 1.5 });
       // 获取canvas
-      const canvas = pages[i - 1].canvasRef.current!;
-      const context = canvas.getContext("2d")!;
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-      console.log("renderPages", canvas, i, pages.length);
+      const pdfCanvas = pages[i - 1].pdfCanvasRef.current!;
+      const fabricCanvas = pages[i - 1].fabricCanvasRef.current!;
+      pdfCanvas.height = viewport.height;
+      pdfCanvas.width = viewport.width;
+      fabricCanvas.height = viewport.height;
+      fabricCanvas.width = viewport.width;
+
+      console.log("renderPages", {
+        viewport,
+        pdfCanvas,
+        fabricCanvas,
+      });
 
       // 渲染pdf
       await page.render({
-        canvasContext: context,
+        canvasContext: pdfCanvas.getContext("2d")!,
         viewport: viewport,
       }).promise;
-
       // 绘制页码
+      const context = pdfCanvas.getContext("2d")!;
       context.font = "20px Arial";
       context.fillStyle = "red";
       context.fillText(
@@ -62,47 +123,8 @@ const PdfEditor = (props: IProps) => {
         viewport.height - 10
       );
 
-      // Initialize Fabric.js canvas for each page
-      const fabricCanvas = new fabric.Canvas(canvas);
-      fabricCanvas.isDrawingMode = true; // 启用绘图模式
-      fabricCanvas.freeDrawingBrush = new fabric.PencilBrush(fabricCanvas); // 设置画笔
-      pages[i - 1].fabricCanvas = fabricCanvas;
-      // 使用 fabric.util.loadImage 加载图像
-      // 将 PDF Canvas 内容转换为 Data URL
-      const dataUrl = canvas.toDataURL();
-      // 使用 Fabric.js 将 PDF Canvas 内容添加到 Fabric 画布
-      fabric.Image.fromURL(dataUrl, (fabricImage: any) => {
-        fabricCanvas.add(fabricImage);
-        fabricCanvas.setHeight(viewport.height);
-        fabricCanvas.setWidth(viewport.width);
-        fabricCanvas.renderAll(); // 渲染 Fabric 画布
-      });
-
-      //   fabric.util.loadImage(canvas.toDataURL(), (img) => {
-      //     const fabricImage = new fabric.Image(img, {
-      //       scaleX: fabricCanvas.width / img.width,
-      //       scaleY: fabricCanvas.height / img.height,
-      //     });
-      //     // 直接设置背景图像
-      //     fabricCanvas.backgroundImage = fabricImage;
-      //     fabricCanvas.renderAll(); // 重新渲染画布
-      //   });
-
-      //   // 监听路径创建事件
-      fabricCanvas.on("path:created", (e) => {
-        console.log("path:created", e);
-
-        const path = e.path;
-        const rect = new fabric.Rect({
-          left: path.left,
-          top: path.top,
-          fill: "rgba(0, 0, 0, 0.5)",
-          width: path.width,
-          height: path.height,
-        });
-        fabricCanvas.remove(path);
-        fabricCanvas.add(rect);
-      });
+      // 绑定事件
+      bind(fabricCanvas);
     }
   };
 
@@ -110,13 +132,14 @@ const PdfEditor = (props: IProps) => {
     if (file && file.type === "application/pdf") {
       const pdfDoc = await pdfjsLib.getDocument(URL.createObjectURL(file))
         .promise;
+
+      console.log("handleFileChange", pdfDoc);
       setPdfDoc(pdfDoc);
       setNumPages(pdfDoc.numPages);
       setPages(
         Array.from({ length: pdfDoc.numPages }, () => ({
-          canvasRef: createRef(),
-          fabricCanvas: null,
-          bgImg: null,
+          pdfCanvasRef: createRef(),
+          fabricCanvasRef: createRef(),
         }))
       );
     } else {
@@ -132,114 +155,66 @@ const PdfEditor = (props: IProps) => {
     handleFileChange(file);
   }, [file]);
 
-  //   useEffect(() => {
-  //     if (pdf && canvasContainerRef.current) {
-  //       const renderPages = async () => {
-  //         const container = canvasContainerRef.current!;
-  //         container.innerHTML = ""; // 清空容器
-  //         fabricCanvasRefs.current = [];
-
-  //         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-  //           const page = await pdf.getPage(pageNum);
-  //           const viewport = page.getViewport({ scale: 2 });
-
-  //           // 初始化canvas
-  //           const canvas = document.createElement("canvas");
-  //           canvas.classList.add("canvas-page");
-  //           const context = canvas.getContext("2d")!;
-  //           canvas.height = viewport.height;
-  //           canvas.width = viewport.width;
-
-  //           // 创建 Fabric.js Canvas
-  //           const fabricCanvas = new fabric.Canvas(canvas);
-  //           fabricCanvasRefs.current.push(fabricCanvas);
-
-  //           // 渲染pdf
-  //           const renderContext = {
-  //             canvasContext: context,
-  //             viewport: viewport,
-  //           };
-  //           await page.render(renderContext).promise;
-  //           context.font = "20px Arial";
-  //           context.fillStyle = "red";
-  //           context.fillText(
-  //             `Page ${pageNum} of ${pdf.numPages}`,
-  //             10,
-  //             viewport.height - 10
-  //           );
-
-  //           // 将渲染的内容作为图像添加到 Fabric.js Canvas 的背景中
-  //           //   const imgData = canvas.toDataURL("image/png");
-  //           //   fabric.util.Image.fromURL(imgData, (img) => {
-  //           //     fabricCanvas.setBackgroundImage(
-  //           //       img,
-  //           //       fabricCanvas.renderAll.bind(fabricCanvas)
-  //           //     );
-  //           //   });
-
-  //           //    添加dom
-  //           container.appendChild(canvas);
-  //           //  添加事件监听器
-  //           fabricCanvas.on("mouse:down", (opt) => {
-  //             const pointer = fabric.util.getPointer(opt.e);
-  //             setIsDrawing(true);
-  //             setStartPos({ x: pointer.x, y: pointer.y });
-  //           });
-  //           fabricCanvas.on("mouse:move", (opt) => {
-  //             console.log("mouse:move", opt);
-
-  //             if (!isDrawing || !startPos) return;
-  //             const pointer = fabric.util.getPointer(opt.e);
-  //             const rect = new fabric.Rect({
-  //               left: startPos.x,
-  //               top: startPos.y,
-  //               width: pointer.x - startPos.x,
-  //               height: pointer.y - startPos.y,
-  //               fill: "rgba(0, 0, 0, 0.5)",
-  //             });
-  //             fabricCanvas.add(rect);
-  //             fabricCanvas.renderAll();
-  //           });
-
-  //           fabricCanvas.on("mouse:up", () => {
-  //             setIsDrawing(false);
-  //             setStartPos(null);
-  //           });
-  //         }
-  //       };
-
-  //       renderPages();
-  //     }
-  //   }, [pdf, isDrawing, startPos]);
-
   const handleRemoveMosaic = () => {
-    fabricCanvasRefs.current.forEach((fabricCanvas) => {
-      fabricCanvas.isDrawingMode = false; // 禁用绘图模式
-      fabricCanvas.on("mouse:down", (opt) => {
-        const target = opt.target;
-        if (target) {
-          fabricCanvas.remove(target); // 移除选中的对象
-        }
-      });
+    erasingRef.current = true;
+    // fabricCanvasRefs.current.forEach((fabricCanvas) => {
+    //   fabricCanvas.isDrawingMode = false; // 禁用绘图模式
+    //   fabricCanvas.on("mouse:down", (opt) => {
+    //     const target = opt.target;
+    //     if (target) {
+    //       fabricCanvas.remove(target); // 移除选中的对象
+    //     }
+    //   });
+    // });
+  };
+
+  const handleSave = () => {
+    const pdf = new jsPDF();
+    pages.forEach(({ pdfCanvasRef }, index) => {
+      const canvas = pdfCanvasRef.current;
+      if (!canvas) return;
+      const imgData = canvas.toDataURL("image/jpeg");
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+      if (index > 0) {
+        pdf.addPage();
+      }
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
     });
+    pdf.save("edited.pdf");
   };
 
   return (
     <div>
-      <button onClick={() => setIsDrawing(true)}>添加马赛克</button>
+      <button
+        onClick={() => {
+          drawingRef.current = true;
+        }}
+      >
+        添加马赛克
+      </button>
       <button onClick={handleRemoveMosaic}>擦除马赛克</button>
-      <div ref={canvasContainerRef}></div>
-
-      {pages.map((item, index) => {
-        return (
-          <>
-            <canvas
-              ref={item?.canvasRef}
-              style={{ border: "1px solid black" }}
-            />
-          </>
-        );
-      })}
+      <button onClick={handleSave}>保存</button>
+      <div ref={canvasContainerRef}>
+        {pages.map((item, index) => {
+          return (
+            <div className="pdf-page-container" key={`${file.name}-${index}`}>
+              <canvas
+                className="pdf-canvas"
+                ref={item?.pdfCanvasRef}
+                style={{ border: "1px solid black" }}
+              />
+              <canvas
+                className="fabric-canvas"
+                ref={item?.fabricCanvasRef}
+                style={{ border: "1px solid black" }}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

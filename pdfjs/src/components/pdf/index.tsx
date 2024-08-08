@@ -17,9 +17,10 @@ const Pdf: React.FC = () => {
           setFileList((state) => [...(state || []), ...(files || [])]);
         }}
       />
+
       {/*Component Content*/}
       <ul>
-        {fileList?.map((file) => {
+        {fileList?.slice(-1)?.map((file) => {
           return (
             <div className="pdf-item">
               <li>
@@ -35,10 +36,6 @@ const Pdf: React.FC = () => {
                 </button>
               </li>
               <PdfEditor file={file} />
-              {/* // <iframe
-              //   style={{ width: "100%", height: "50vh" }}
-              //   src={URL.createObjectURL(file)}
-              // /> */}
             </div>
           );
         })}

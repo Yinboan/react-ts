@@ -2,3 +2,13 @@
   border: 1px solid black;
   position: relative !important;
 }
+.pdf-page-container {
+  background-color: antiquewhite;
+  position: relative;
+}
+.fabric-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background-color: aquamarine;
+}
